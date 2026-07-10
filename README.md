@@ -22,7 +22,7 @@ BACKUP_ROOT/hostname/OpenWrt_version_timestamp
 Example:
 
 ```text
-/mnt/sda1/obackupper_backups/OpenWrt/OpenWrt_25.12.3_r12345_2026-07-09_18-10-00
+/mnt/sda1/obackupper_backups/hEx/OpenWrt_24.10.5_r29087-d9c5716d1d_2026-07-10_15-47-39
 ```
 
 Default retention is `20` backups per hostname.
@@ -37,11 +37,23 @@ Default retention is `20` backups per hostname.
 
 ## How restore works
 
-1. Verify `sha256sums.txt`
-2. Show source router info
-3. Clear the target directory
-4. Extract the saved overlay
-5. Request reboot if target is `/overlay/upper`
+`obackupper restore` without arguments is safe: it opens the same selector as `obackupper list` and does **not** immediately restore the latest backup.
+
+1. Select a hostname folder
+2. Select a concrete backup folder
+3. Choose restore, delete, or cancel
+4. For restore, verify `sha256sums.txt`
+5. Show source router info and destructive restore warning
+6. Require explicit confirmation
+7. Clear the target directory
+8. Extract the saved overlay
+9. Request reboot if target is `/overlay/upper`
+
+Direct restore is still available:
+
+```sh
+obackupper restore /mnt/sda1/obackupper_backups/hEx/OpenWrt_24.10.5_r29087-d9c5716d1d_2026-07-10_15-47-39
+```
 
 ## Requirements
 
@@ -50,7 +62,6 @@ Default retention is `20` backups per hostname.
 - `tar`, `sha256sum`, `mount`, `awk`, `sed`, `grep`, `sort`
 - `pigz` recommended
 - One downloader: `wget`, `uclient-fetch`, or `curl`
-- `stty` recommended for arrow-key menus
 
 ## Recommended packages
 
@@ -58,14 +69,14 @@ Default retention is `20` backups per hostname.
 
 ```sh
 opkg update
-opkg install pigz wget-ssl coreutils-stty
+opkg install pigz wget-ssl
 ```
 
 ### `apk`
 
 ```sh
 apk update
-apk add pigz wget coreutils-stty
+apk add pigz wget
 ```
 
 Use `--gzip` if `pigz` is not available.
@@ -116,15 +127,18 @@ chmod +x obackupper.sh
 obackupper backup
 obackupper list
 obackupper restore
+obackupper restore BACKUP_DIR [TARGET]
 obackupper place
 obackupper -remove
 ```
 
 ## Notes
 
-- `list` first shows hostname groups, with the current router hostname pinned to the top.
-- Backups on the same device still protect against bad changes, but not storage failure.
+- `list` first shows hostname groups from `BACKUP_ROOT/<hostname>`, with the current router hostname pinned to the top and shown in green.
+- After selecting a hostname, `list` shows the concrete backup folders stored under that hostname.
+- `restore` without arguments opens the selector and never auto-restores the latest backup.
 - Restore is destructive and requires explicit confirmation.
+- Backups on the same device still protect against bad changes, but not storage failure.
 - Installed copies check GitHub for updates on start by default.
 
 ## License
