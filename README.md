@@ -115,6 +115,11 @@ On first run it:
 - creates `/usr/bin/obackupper`
 - writes the default backup config if it does not exist
 
+For an installed copy, GitHub is checked before every command. If a newer
+version is available, `obackupper` installs it and restarts the same command.
+`obackupper help` shows the GitHub `main` commit and commit date checked at
+startup.
+
 ### `wget`
 
 ```sh

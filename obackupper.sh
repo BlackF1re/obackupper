@@ -19,11 +19,12 @@ COMPRESSOR_MODE="${COMPRESSOR_MODE:-pigz}"
 RETENTION_COUNT="${RETENTION_COUNT:-20}"
 AUTO_UPDATE="${AUTO_UPDATE:-1}"
 AUTO_UPDATE_URL="${AUTO_UPDATE_URL:-https://raw.githubusercontent.com/BlackF1re/obackupper/main/obackupper.sh}"
-AUTO_UPDATE_INTERVAL="${AUTO_UPDATE_INTERVAL:-3600}"
-SELF_UPDATE_STAMP="/tmp/${SHORTCUT_NAME}.self-update.stamp"
+AUTO_UPDATE_VERSION_URL="${AUTO_UPDATE_VERSION_URL:-https://api.github.com/repos/BlackF1re/obackupper/commits/main}"
 LOCK_DIR="/tmp/${SCRIPT_BASENAME}.lock"
 ALLOW_RAM_BACKUP=0
 REMOVE_INSTALLATION=0
+REMOTE_VERSION_COMMIT="unavailable"
+REMOTE_VERSION_DATE="unavailable"
 
 C_RESET= C_RED= C_GREEN= C_YELLOW= C_CYAN= C_BOLD=
 BACKUP_ROOT="${BACKUP_ROOT:-$FALLBACK_BACKUP_ROOT}"
@@ -41,28 +42,32 @@ warn() { printf "%sWarning:%s %s\n" "$C_YELLOW" "$C_RESET" "$*" >&2; }
 die() { printf "%sError:%s %s\n" "$C_RED" "$C_RESET" "$*" >&2; exit 1; }
 
 usage() {
-    local root
+    local root version_date
     root=$(normalize_backup_root_path "$BACKUP_ROOT" 2>/dev/null || echo "$BACKUP_ROOT")
+    version_date="$REMOTE_VERSION_DATE"
     cat <<EOF_USAGE
-Usage:
-  $SCRIPT_BASENAME [--pigz|--gzip] [--allow-ram] backup [DIR]
-  $SCRIPT_BASENAME [--pigz|--gzip] restore [BACKUP_DIR] [TARGET]
-  $SCRIPT_BASENAME [--pigz|--gzip] list
-  $SCRIPT_BASENAME place
-  $SCRIPT_BASENAME -remove
+Usage: $SHORTCUT_NAME [options] <command> [arguments]
+
+Options:
+  --pigz             Compress with pigz (default; falls back to gzip if unavailable)
+  --gzip             Compress with gzip
+  --allow-ram        Allow creating a backup on a RAM filesystem
 
 Commands:
-  backup [DIR]        Create backup in DIR/<hostname>/<OpenWrt version + timestamp>
-  restore             Open safe hostname -> backup selector; does not restore immediately
-  restore BACKUP_DIR  Restore concrete backup only after explicit confirmation
-  list                Interactive hostname -> backup -> action selector
-  place               Interactive writable storage / existing backup-root selector
-  -remove             Remove installed script, shortcut and config
+  backup [DIR]       Create a backup in DIR/<hostname>/<OpenWrt version + timestamp>
+  restore            Open the safe hostname and backup selector
+  restore DIR [DST]  Restore one selected backup after explicit confirmation
+  list               Browse backups and choose an action interactively
+  place              Choose writable storage for future backups
+  -remove            Remove the installed script, shortcut, and configuration
+  help, --help, -h   Show this help
 
-Menus:
-  Use Up/Down arrows, Enter to select, q to cancel.
+Interactive menus: Up/Down to move, Enter to select, q to cancel.
+Current backup root: $root
 
-Current BACKUP_ROOT: $root
+GitHub main version checked at startup:
+  Commit: $REMOTE_VERSION_COMMIT
+  Date:   $version_date
 EOF_USAGE
 }
 
@@ -94,7 +99,6 @@ normalize_restore_target() { local t; t="${1:-$DEFAULT_RESTORE_TARGET}"; [ "$t" 
 validate_settings() {
     case "$RETENTION_COUNT" in ''|*[!0-9]*) die "RETENTION_COUNT must be a non-negative integer.";; esac
     case "$AUTO_UPDATE" in 0|1) ;; *) die "AUTO_UPDATE must be 0 or 1.";; esac
-    case "$AUTO_UPDATE_INTERVAL" in ''|*[!0-9]*) die "AUTO_UPDATE_INTERVAL must be a non-negative integer.";; esac
 }
 
 find_download_tool() { command -v uclient-fetch >/dev/null 2>&1 && { echo uclient-fetch; return; }; command -v wget >/dev/null 2>&1 && { echo wget; return; }; command -v curl >/dev/null 2>&1 && { echo curl; return; }; return 1; }
@@ -111,7 +115,7 @@ is_installed_invocation() {
 write_config() {
     local root tmp
     root=$(normalize_backup_root_path "$1"); tmp="/tmp/${SCRIPT_BASENAME}.config.$$"
-    { echo "BACKUP_ROOT='$root'"; echo "RETENTION_COUNT='$RETENTION_COUNT'"; echo "AUTO_UPDATE='$AUTO_UPDATE'"; echo "AUTO_UPDATE_URL='$AUTO_UPDATE_URL'"; echo "AUTO_UPDATE_INTERVAL='$AUTO_UPDATE_INTERVAL'"; } > "$tmp"
+    { echo "BACKUP_ROOT='$root'"; echo "RETENTION_COUNT='$RETENTION_COUNT'"; echo "AUTO_UPDATE='$AUTO_UPDATE'"; echo "AUTO_UPDATE_URL='$AUTO_UPDATE_URL'"; echo "AUTO_UPDATE_VERSION_URL='$AUTO_UPDATE_VERSION_URL'"; } > "$tmp"
     mkdir -p "$(dirname "$CONFIG_PATH")"; mv "$tmp" "$CONFIG_PATH"
 }
 install_self() {
@@ -125,26 +129,32 @@ install_self() {
 remove_installed_artifacts() { local p any; any=0; for p in "$INSTALL_PATH" "$LEGACY_INSTALL_PATH" "$SHORTCUT_PATH" "$CONFIG_PATH"; do if [ -e "$p" ] || [ -L "$p" ]; then rm -f "$p"; echo "Removed: $p"; any=1; else echo "Not present: $p"; fi; done; [ "$any" = 1 ] || echo "Nothing to remove."; }
 
 self_update_if_enabled() {
-    is_installed_invocation || return 0
     [ "$AUTO_UPDATE" = 1 ] || return 0
     [ -n "$AUTO_UPDATE_URL" ] || return 0
-    if [ "$AUTO_UPDATE_INTERVAL" -gt 0 ] && [ -f "$SELF_UPDATE_STAMP" ]; then
-        local now last elapsed
-        now=$(date +%s); last=$(cat "$SELF_UPDATE_STAMP" 2>/dev/null || echo 0); case "$last" in ''|*[!0-9]*) last=0;; esac
-        elapsed=$((now - last)); [ "$elapsed" -lt "$AUTO_UPDATE_INTERVAL" ] && return 0
-    fi
     find_download_tool >/dev/null 2>&1 || return 0
-    local tmp cur new
+    local tmp version_tmp current_path cur new
     tmp="/tmp/${SCRIPT_BASENAME}.update.$$"
+    version_tmp="/tmp/${SCRIPT_BASENAME}.version.$$"
+    if [ -n "$AUTO_UPDATE_VERSION_URL" ] && download_to "$AUTO_UPDATE_VERSION_URL" "$version_tmp"; then
+        REMOTE_VERSION_COMMIT=$(sed -n 's/^[[:space:]]*"sha": "\([0-9a-f]*\)".*/\1/p' "$version_tmp" | awk 'NR == 1 { print substr($0, 1, 7) }')
+        REMOTE_VERSION_DATE=$(awk '/"committer": \{/ { in_committer=1; next } in_committer && /"date":/ { gsub(/.*"date": "/, ""); gsub(/".*/, ""); print; exit }' "$version_tmp")
+        [ -n "$REMOTE_VERSION_COMMIT" ] || REMOTE_VERSION_COMMIT=unavailable
+        [ -n "$REMOTE_VERSION_DATE" ] || REMOTE_VERSION_DATE=unavailable
+    fi
+    rm -f "$version_tmp"
     if download_to "$AUTO_UPDATE_URL" "$tmp"; then
-        cur=$(file_checksum "$(existing_install_path)" 2>/dev/null || true); new=$(file_checksum "$tmp" 2>/dev/null || true)
+        current_path=$(existing_install_path 2>/dev/null || printf "%s" "$0")
+        cur=$(file_checksum "$current_path" 2>/dev/null || true); new=$(file_checksum "$tmp" 2>/dev/null || true)
         if [ -n "$new" ] && [ "$new" != "$cur" ]; then
             log "Updating $SHORTCUT_NAME from GitHub"
-            cp "$tmp" "$INSTALL_PATH"; chmod 0755 "$INSTALL_PATH"; ln -sf "$INSTALL_PATH" "$SHORTCUT_PATH"
-            date +%s > "$SELF_UPDATE_STAMP" 2>/dev/null || true; rm -f "$tmp"; exec "$SHORTCUT_PATH" "$@"
+            if is_installed_invocation; then
+                cp "$tmp" "$INSTALL_PATH"; chmod 0755 "$INSTALL_PATH"; ln -sf "$INSTALL_PATH" "$SHORTCUT_PATH"
+                rm -f "$tmp"; exec "$SHORTCUT_PATH" "$@"
+            fi
+            chmod 0755 "$tmp"; exec "$tmp" "$@"
         fi
     fi
-    rm -f "$tmp"; date +%s > "$SELF_UPDATE_STAMP" 2>/dev/null || true
+    rm -f "$tmp"
 }
 
 acquire_lock() {
@@ -457,10 +467,11 @@ restore_backup() { local b t; b="$1"; t=$(normalize_restore_target "${2:-$DEFAUL
 
 main() {
     setup_colors
+    self_update_if_enabled "$@"
     while [ $# -gt 0 ]; do case "$1" in --pigz) COMPRESSOR_MODE=pigz; shift;; --gzip) COMPRESSOR_MODE=gzip; shift;; --allow-ram) ALLOW_RAM_BACKUP=1; shift;; -remove|--remove) REMOVE_INSTALLATION=1; shift;; *) break;; esac; done
     require_root; validate_settings
     if [ "$REMOVE_INSTALLATION" = 1 ]; then [ $# -eq 0 ] || die "-remove does not accept additional arguments."; remove_installed_artifacts; exit 0; fi
-    self_update_if_enabled "$@"; BACKUP_ROOT=$(normalize_backup_root_path "$BACKUP_ROOT")
+    BACKUP_ROOT=$(normalize_backup_root_path "$BACKUP_ROOT")
     if ! is_installed_invocation; then case "${1:-}" in -h|--help|help) usage; exit 0;; *) install_self; [ $# -gt 0 ] && exec "$SHORTCUT_PATH" "$@"; exit 0;; esac; fi
     [ $# -gt 0 ] || { usage; exit 1; }
     local cmd
