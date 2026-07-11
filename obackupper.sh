@@ -86,7 +86,7 @@ prompt_value() {
 }
 ask_yes_no() { local ans; ans=$(prompt_value "$1" "${2:-n}"); ans=$(printf "%s" "$ans" | tr A-Z a-z); [ "$ans" = y ] || [ "$ans" = yes ]; }
 
-sanitize_path_component() { printf "%s" "$1" | tr '/[:space:]' '___' | sed 's/[^A-Za-z0-9._-]/_/g; s/^__*/_/; s/__*$//'; }
+sanitize_path_component() { printf "%s" "$1" | sed 's#[/[:space:]]#_#g; s/[^A-Za-z0-9._-]/_/g; s/^__*/_/; s/__*$//'; }
 current_hostname() { local h; h=$(uname -n 2>/dev/null || hostname 2>/dev/null || echo OpenWrt); h=$(sanitize_path_component "$h"); [ -n "$h" ] && echo "$h" || echo OpenWrt; }
 normalize_backup_root_path() { local p; p="${1:-$BACKUP_ROOT}"; [ -n "$p" ] || p="$FALLBACK_BACKUP_ROOT"; p=${p%/}; case "$p" in */$BACKUP_ROOT_DIRNAME) echo "$p";; *) echo "$p/$BACKUP_ROOT_DIRNAME";; esac; }
 normalize_restore_target() { local t; t="${1:-$DEFAULT_RESTORE_TARGET}"; [ "$t" = / ] && echo "$DEFAULT_RESTORE_TARGET" || echo "${t%/}"; }
@@ -407,8 +407,6 @@ gather_storage_candidates() {
         [ -d "$mp" ] || continue
         echo "$mp" >> "$tmp"
     done
-    if [ -d /mnt ]; then find /mnt -mindepth 1 -maxdepth 1 -type d 2>/dev/null >> "$tmp" || true; fi
-    [ -d /overlay/share ] && echo /overlay/share >> "$tmp"
     sort -u "$tmp" 2>/dev/null | while IFS= read -r base; do add_storage_candidate "$out" "$seen" "$base" create writable; done
 
     rm -f "$seen" "$tmp"
