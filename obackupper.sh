@@ -101,7 +101,12 @@ find_download_tool() { command -v uclient-fetch >/dev/null 2>&1 && { echo uclien
 download_to() { local tool; tool=$(find_download_tool) || return 1; case "$tool" in wget) wget -q -O "$2" "$1";; uclient-fetch) uclient-fetch -q -O "$2" "$1";; curl) curl -fsSL -o "$2" "$1";; esac; }
 file_checksum() { [ -f "$1" ] || return 1; sha256sum "$1" | awk '{print $1}'; }
 existing_install_path() { [ -f "$INSTALL_PATH" ] && { echo "$INSTALL_PATH"; return; }; [ -f "$LEGACY_INSTALL_PATH" ] && { echo "$LEGACY_INSTALL_PATH"; return; }; return 1; }
-is_installed_invocation() { [ "$0" = "$INSTALL_PATH" ] || [ "$0" = "$SHORTCUT_PATH" ] || [ "$0" = "$LEGACY_INSTALL_PATH" ]; }
+is_installed_invocation() {
+    case "$0" in
+        "$INSTALL_PATH"|"$SHORTCUT_PATH"|"$LEGACY_INSTALL_PATH"|"$SCRIPT_BASENAME"|"$SHORTCUT_NAME") return 0;;
+    esac
+    return 1
+}
 
 write_config() {
     local root tmp
