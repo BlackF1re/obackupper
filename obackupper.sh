@@ -25,6 +25,7 @@ ALLOW_RAM_BACKUP=0
 REMOVE_INSTALLATION=0
 REMOTE_VERSION_COMMIT="unavailable"
 REMOTE_VERSION_DATE="unavailable"
+REMOTE_VERSION_SHA=""
 
 C_RESET= C_RED= C_GREEN= C_YELLOW= C_CYAN= C_BOLD=
 BACKUP_ROOT="${BACKUP_ROOT:-$FALLBACK_BACKUP_ROOT}"
@@ -132,17 +133,26 @@ self_update_if_enabled() {
     [ "$AUTO_UPDATE" = 1 ] || return 0
     [ -n "$AUTO_UPDATE_URL" ] || return 0
     find_download_tool >/dev/null 2>&1 || return 0
-    local tmp version_tmp current_path cur new
+    local tmp version_tmp download_url current_path cur new
     tmp="/tmp/${SCRIPT_BASENAME}.update.$$"
     version_tmp="/tmp/${SCRIPT_BASENAME}.version.$$"
     if [ -n "$AUTO_UPDATE_VERSION_URL" ] && download_to "$AUTO_UPDATE_VERSION_URL" "$version_tmp"; then
-        REMOTE_VERSION_COMMIT=$(sed -n 's/^[[:space:]]*"sha": "\([0-9a-f]*\)".*/\1/p' "$version_tmp" | awk 'NR == 1 { print substr($0, 1, 7) }')
+        REMOTE_VERSION_SHA=$(sed -n 's/^[[:space:]]*"sha": "\([0-9a-f]*\)".*/\1/p' "$version_tmp" | sed -n '1p')
+        REMOTE_VERSION_COMMIT=$(printf "%.7s" "$REMOTE_VERSION_SHA")
         REMOTE_VERSION_DATE=$(awk '/"committer": \{/ { in_committer=1; next } in_committer && /"date":/ { gsub(/.*"date": "/, ""); gsub(/".*/, ""); print; exit }' "$version_tmp")
         [ -n "$REMOTE_VERSION_COMMIT" ] || REMOTE_VERSION_COMMIT=unavailable
         [ -n "$REMOTE_VERSION_DATE" ] || REMOTE_VERSION_DATE=unavailable
     fi
     rm -f "$version_tmp"
-    if download_to "$AUTO_UPDATE_URL" "$tmp"; then
+    download_url="$AUTO_UPDATE_URL"
+    case "$AUTO_UPDATE_URL" in
+        https://raw.githubusercontent.com/BlackF1re/obackupper/main/*)
+            # A commit URL cannot be served from an older raw/main CDN cache.
+            [ -n "$REMOTE_VERSION_SHA" ] || return 0
+            download_url="${AUTO_UPDATE_URL%%/main/*}/$REMOTE_VERSION_SHA/${AUTO_UPDATE_URL#*/main/}"
+            ;;
+    esac
+    if download_to "$download_url" "$tmp"; then
         current_path=$(existing_install_path 2>/dev/null || printf "%s" "$0")
         cur=$(file_checksum "$current_path" 2>/dev/null || true); new=$(file_checksum "$tmp" 2>/dev/null || true)
         if [ -n "$new" ] && [ "$new" != "$cur" ]; then
