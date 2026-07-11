@@ -137,9 +137,9 @@ self_update_if_enabled() {
     tmp="/tmp/${SCRIPT_BASENAME}.update.$$"
     version_tmp="/tmp/${SCRIPT_BASENAME}.version.$$"
     if [ -n "$AUTO_UPDATE_VERSION_URL" ] && download_to "$AUTO_UPDATE_VERSION_URL" "$version_tmp"; then
-        REMOTE_VERSION_SHA=$(sed -n 's/^[[:space:]]*"sha": "\([0-9a-f]*\)".*/\1/p' "$version_tmp" | sed -n '1p')
+        REMOTE_VERSION_SHA=$(sed -n 's/^[{][[:space:]]*"sha"[[:space:]]*:[[:space:]]*"\([0-9a-f]*\)".*/\1/p' "$version_tmp" | sed -n '1p')
         REMOTE_VERSION_COMMIT=$(printf "%.7s" "$REMOTE_VERSION_SHA")
-        REMOTE_VERSION_DATE=$(awk '/"committer": \{/ { in_committer=1; next } in_committer && /"date":/ { gsub(/.*"date": "/, ""); gsub(/".*/, ""); print; exit }' "$version_tmp")
+        REMOTE_VERSION_DATE=$(awk '{ p=index($0, "\"committer\""); if (p) { v=substr($0, p); p=index(v, "\"date\""); if (p) { v=substr(v, p); sub(/^[^\"]*\"date\"[[:space:]]*:[[:space:]]*\"/, "", v); sub(/\".*/, "", v); print v; exit } } }' "$version_tmp")
         [ -n "$REMOTE_VERSION_COMMIT" ] || REMOTE_VERSION_COMMIT=unavailable
         [ -n "$REMOTE_VERSION_DATE" ] || REMOTE_VERSION_DATE=unavailable
     fi
