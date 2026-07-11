@@ -97,7 +97,7 @@ validate_settings() {
     case "$AUTO_UPDATE_INTERVAL" in ''|*[!0-9]*) die "AUTO_UPDATE_INTERVAL must be a non-negative integer.";; esac
 }
 
-find_download_tool() { command -v wget >/dev/null 2>&1 && { echo wget; return; }; command -v uclient-fetch >/dev/null 2>&1 && { echo uclient-fetch; return; }; command -v curl >/dev/null 2>&1 && { echo curl; return; }; return 1; }
+find_download_tool() { command -v uclient-fetch >/dev/null 2>&1 && { echo uclient-fetch; return; }; command -v wget >/dev/null 2>&1 && { echo wget; return; }; command -v curl >/dev/null 2>&1 && { echo curl; return; }; return 1; }
 download_to() { local tool; tool=$(find_download_tool) || return 1; case "$tool" in wget) wget -q -O "$2" "$1";; uclient-fetch) uclient-fetch -q -O "$2" "$1";; curl) curl -fsSL -o "$2" "$1";; esac; }
 file_checksum() { [ -f "$1" ] || return 1; sha256sum "$1" | awk '{print $1}'; }
 existing_install_path() { [ -f "$INSTALL_PATH" ] && { echo "$INSTALL_PATH"; return; }; [ -f "$LEGACY_INSTALL_PATH" ] && { echo "$LEGACY_INSTALL_PATH"; return; }; return 1; }
