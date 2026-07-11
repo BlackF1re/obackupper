@@ -161,7 +161,7 @@ obackupper -remove
 - `place` shows existing backup roots and writable disks/directories; it does not start with a manual path prompt.
 - Restore is destructive and requires explicit confirmation.
 - Backups on the same device still protect against bad changes, but not storage failure.
-- Installed copies check GitHub for updates on start by default.
+- Installed copies check GitHub for updates at most once per hour by default.
 
 ## License
 
